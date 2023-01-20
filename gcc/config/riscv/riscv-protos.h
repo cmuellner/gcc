@@ -77,6 +77,8 @@ extern const char *
 riscv_output_move_index (rtx x, machine_mode mode, bool ldr);
 extern const char *
 riscv_output_move_modify (rtx x, machine_mode mode, bool ldi);
+extern const char *
+riscv_output_move_index_float (rtx x, machine_mode mode, bool ldr);
 
 extern bool
 riscv_legitimize_address_index_p (rtx x, machine_mode mode, bool uindex);

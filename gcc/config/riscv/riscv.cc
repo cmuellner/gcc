@@ -1316,7 +1316,7 @@ riscv_classify_address_index (struct riscv_address_info *info, rtx x,
   rtx index;
   int shift = 0;
 
-  if (!TARGET_XTHEADMEMIDX)
+  if (!(TARGET_XTHEADMEMIDX || TARGET_XTHEADFMEMIDX))
     return false;
 
   if (!TARGET_64BIT && mode == DImode)
@@ -1325,6 +1325,8 @@ riscv_classify_address_index (struct riscv_address_info *info, rtx x,
   if (SCALAR_FLOAT_MODE_P (mode))
     {
       if (!TARGET_HARD_FLOAT)
+	return false;
+      if (!(TARGET_HARD_FLOAT && TARGET_XTHEADFMEMIDX))
 	return false;
       if (GET_MODE_SIZE (mode).to_constant () == 2)
 	return false;
@@ -1422,7 +1424,7 @@ riscv_classify_address_modify (struct riscv_address_info *info, rtx x,
   ? (SHIFT) + 1 \
   : 0)
 
-  if (!TARGET_XTHEADMEMIDX)
+  if (!(TARGET_XTHEADMEMIDX || TARGET_XTHEADFMEMIDX))
     return false;
 
   if (!(INTEGRAL_MODE_P (mode) && GET_MODE_SIZE (mode).to_constant () <= 8))
@@ -1554,6 +1556,42 @@ riscv_output_move_index (rtx x, machine_mode mode, bool ldr)
       "th.l%srhu\t%%0,%%1",
       "th.l%srw\t%%0,%%1",
       "th.l%srd\t%%0,%%1"
+    }
+  };
+
+  snprintf (buf, sizeof (buf), insn[ldr][index], uindex ? "u" : "");
+
+  return buf;
+}
+
+const char *
+riscv_output_move_index_float (rtx x, machine_mode mode, bool ldr)
+{
+  static char buf[128] = {0};
+
+  int index = exact_log2 (GET_MODE_SIZE (mode).to_constant ());
+  if (!IN_RANGE (index, 2, 3))
+    return NULL;
+
+  if (!riscv_legitimize_address_index_p (x, mode, false))
+    return NULL;
+
+  bool uindex = riscv_legitimize_address_index_p (x, mode, true);
+
+  /* Not using index, 0, 1, as they are not implemented
+     for xtheadfmemidx yet.  */
+  const char *const insn[][4] = {
+    {
+      "th.fs%srb\t%%z1,%%0",
+      "th.fs%srh\t%%z1,%%0",
+      "th.fs%srw\t%%z1,%%0",
+      "th.fs%srd\t%%z1,%%0"
+    },
+    {
+      "th.fl%srb\t%%0,%%1",
+      "th.fl%srh\t%%0,%%1",
+      "th.fl%srw\t%%0,%%1",
+      "th.fl%srd\t%%0,%%1"
     }
   };
 
@@ -2739,7 +2777,7 @@ riscv_rtx_costs (rtx x, machine_mode mode, int outer_code, int opno ATTRIBUTE_UN
 	}
       /* bit extraction pattern (xtheadmemidx, xtheadfmemidx).  */
       if (outer_code == SET
-	  && TARGET_XTHEADMEMIDX)
+	  && (TARGET_XTHEADMEMIDX || TARGET_XTHEADFMEMIDX))
 	{
 	  *total = COSTS_N_INSNS (SINGLE_SHIFT_COST);
 	  return true;
@@ -3071,6 +3109,20 @@ riscv_split_64bit_move_p (rtx dest, rtx src)
   if (TARGET_64BIT)
     return false;
 
+  if (TARGET_XTHEADFMEMIDX)
+    {
+      if (MEM_P (src) && SCALAR_FLOAT_MODE_P (GET_MODE (src))
+	  && riscv_legitimize_address_index_p (XEXP (src, 0),
+					       GET_MODE (src), false)
+	  && FP_REG_RTX_P (dest))
+	return false;
+      if (MEM_P (dest) && SCALAR_FLOAT_MODE_P (GET_MODE (dest))
+	  && riscv_legitimize_address_index_p (XEXP (dest, 0),
+					       GET_MODE (dest), false)
+	  && FP_REG_RTX_P (src))
+	return false;
+    }
+
   /* Allow FPR <-> FPR and FPR <-> MEM moves, and permit the special case
      of zeroing an FPR with FCVT.D.W.  */
   if (TARGET_DOUBLE_FLOAT
@@ -3269,6 +3321,12 @@ riscv_output_move (rtx dest, rtx src)
 
       if (dest_code == MEM)
 	{
+	  const char *insn = NULL;
+	  insn = riscv_output_move_index_float (XEXP (dest, 0),
+						GET_MODE (dest), false);
+	  if (insn)
+	    return insn;
+
 	  switch (width)
 	    {
 	    case 2:
@@ -3284,6 +3342,12 @@ riscv_output_move (rtx dest, rtx src)
     {
       if (src_code == MEM)
 	{
+	  const char *insn = NULL;
+	  insn = riscv_output_move_index_float (XEXP (src, 0),
+						GET_MODE (src), true);
+	  if (insn)
+	    return insn;
+
 	  switch (width)
 	    {
 	    case 2:

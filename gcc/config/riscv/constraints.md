@@ -202,3 +202,10 @@
   (and (match_code "mem")
        (match_test "riscv_legitimize_address_index_p (
 		    XEXP (op, 0), GET_MODE (op), true)")))
+
+(define_memory_constraint "Qmx"
+  "@internal
+   An address valid for GPR."
+  (and (match_code "mem")
+       (match_test "!riscv_legitimize_address_index_p (
+		    XEXP (op, 0), GET_MODE (op), false)")))

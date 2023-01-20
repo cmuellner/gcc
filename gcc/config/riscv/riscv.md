@@ -1866,6 +1866,20 @@
 	     "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
    (set_attr "mode" "SF")])
 
+(define_insn "*movsf_hardfloat"
+  [(set (match_operand:SF 0
+	"nonimmediate_operand" "=f,f,f,m,Qmx,*f,*r,  *r,*r,*Qmx")
+	(match_operand:SF 1
+	"move_operand" " f,G,m,f,G,*r,*f,*G*r,*Qmx,*r"))]
+  "!TARGET_64BIT
+   && TARGET_XTHEADFMEMIDX
+   && (register_operand (operands[0], SFmode)
+       || reg_or_0_operand (operands[1], SFmode))"
+  { return riscv_output_move (operands[0], operands[1]); }
+  [(set_attr "move_type"
+	      "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
+   (set_attr "mode" "SF")])
+
 (define_insn "*movsf_softfloat"
   [(set (match_operand:SF 0 "nonimmediate_operand" "= r,r,m")
 	(match_operand:SF 1 "move_operand"         " Gr,m,r"))]
@@ -1898,6 +1912,20 @@
   { return riscv_output_move (operands[0], operands[1]); }
   [(set_attr "move_type"
 	     "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
+   (set_attr "mode" "DF")])
+
+(define_insn "*movdf_hardfloat_rv32"
+  [(set (match_operand:DF 0
+	"nonimmediate_operand" "=f,f,f,m,Qmx,  *r,*r,*Qmx")
+	(match_operand:DF 1
+	"move_operand" " f,G,m,f,G,*r*G,*Qmx,*r"))]
+  "!TARGET_64BIT && TARGET_DOUBLE_FLOAT
+   && TARGET_XTHEADFMEMIDX
+   && (register_operand (operands[0], DFmode)
+       || reg_or_0_operand (operands[1], DFmode))"
+  { return riscv_output_move (operands[0], operands[1]); }
+  [(set_attr "move_type"
+	     "fmove,mtc,fpload,fpstore,store,move,load,store")
    (set_attr "mode" "DF")])
 
 (define_insn "*movdf_hardfloat_rv64"

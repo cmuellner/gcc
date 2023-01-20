@@ -535,7 +535,7 @@ enum reg_class
    factor or added to another register (as well as added to a
    displacement).  */
 
-#define INDEX_REG_CLASS ((TARGET_XTHEADMEMIDX) ? \
+#define INDEX_REG_CLASS ((TARGET_XTHEADMEMIDX || TARGET_XTHEADFMEMIDX) ? \
 			GR_REGS : NO_REGS)
 
 /* We generally want to put call-clobbered registers ahead of
@@ -707,7 +707,7 @@ typedef struct {
 /* Addressing modes, and classification of registers for them.  */
 
 #define REGNO_OK_FOR_INDEX_P(REGNO) \
-  ((TARGET_XTHEADMEMIDX) ? \
+  ((TARGET_XTHEADMEMIDX || TARGET_XTHEADFMEMIDX) ? \
   riscv_regno_mode_ok_for_base_p (REGNO, VOIDmode, 1) : 0)
 
 #define REGNO_MODE_OK_FOR_BASE_P(REGNO, MODE) \
