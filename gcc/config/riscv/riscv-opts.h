@@ -215,4 +215,7 @@ enum stack_protector_guard {
 #define TARGET_XTHEADMEMPAIR ((riscv_xthead_subext & MASK_XTHEADMEMPAIR) != 0)
 #define TARGET_XTHEADSYNC    ((riscv_xthead_subext & MASK_XTHEADSYNC) != 0)
 
+#define HAVE_POST_MODIFY_DISP TARGET_XTHEADMEMIDX
+#define HAVE_PRE_MODIFY_DISP  TARGET_XTHEADMEMIDX
+
 #endif /* ! GCC_RISCV_OPTS_H */

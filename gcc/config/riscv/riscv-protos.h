@@ -65,6 +65,24 @@ extern void riscv_expand_int_scc (rtx, enum rtx_code, rtx, rtx);
 extern void riscv_expand_float_scc (rtx, enum rtx_code, rtx, rtx);
 extern void riscv_expand_conditional_branch (rtx, enum rtx_code, rtx, rtx);
 #endif
+
+extern bool
+riscv_classify_address_index (struct riscv_address_info *info, rtx x,
+			      machine_mode mode, bool strict_p);
+extern bool
+riscv_classify_address_modify (struct riscv_address_info *info, rtx x,
+			       machine_mode mode, bool strict_p);
+
+extern const char *
+riscv_output_move_index (rtx x, machine_mode mode, bool ldr);
+extern const char *
+riscv_output_move_modify (rtx x, machine_mode mode, bool ldi);
+
+extern bool
+riscv_legitimize_address_index_p (rtx x, machine_mode mode, bool uindex);
+extern bool
+riscv_legitimize_address_modify_p (rtx x, machine_mode mode, bool post);
+
 extern bool riscv_expand_conditional_move (rtx, rtx, rtx, rtx);
 extern rtx riscv_legitimize_call_address (rtx);
 extern void riscv_set_return_address (rtx, rtx);

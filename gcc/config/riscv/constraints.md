@@ -174,3 +174,31 @@
 
 (define_register_constraint "th_r_fmv" "TARGET_XTHEADFMV ? GR_REGS : NO_REGS"
   "An integer register for XTheadFmv.")
+
+(define_memory_constraint "Qmb"
+  "@internal
+   An address valid for LDIB/LDIA and STIB/STIA instructions."
+  (and (match_code "mem")
+       (match_test "riscv_legitimize_address_modify_p (
+		    XEXP (op, 0), GET_MODE (op), false)")))
+
+(define_memory_constraint "Qma"
+  "@internal
+   An address valid for LDIA and STIA instructions."
+  (and (match_code "mem")
+       (match_test "riscv_legitimize_address_modify_p (
+		    XEXP (op, 0), GET_MODE (op), true)")))
+
+(define_memory_constraint "Qmr"
+  "@internal
+   An address valid for LDR and STR instructions."
+  (and (match_code "mem")
+       (match_test "riscv_legitimize_address_index_p (
+		    XEXP (op, 0), GET_MODE (op), false)")))
+
+(define_memory_constraint "Qmu"
+  "@internal
+   An address valid for LDUR and STUR instructions."
+  (and (match_code "mem")
+       (match_test "riscv_legitimize_address_index_p (
+		    XEXP (op, 0), GET_MODE (op), true)")))

@@ -83,6 +83,19 @@ along with GCC; see the file COPYING3.  If not see
 
 /* Classifies an address.
 
+   ADDRESS_REG_REG
+       A base register indexed by (optionally scaled) register.
+
+   ADDRESS_REG_UREG
+       A base register indexed by (optionally scaled) zero-extended register.
+
+   ADDRESS_REG_WB
+       A base register indexed by immediate offset with writeback.
+
+   ADDRESS_REG
+       A natural register + offset address.  The register satisfies
+       riscv_valid_base_register_p and the offset is a const_arith_operand.
+
    ADDRESS_REG
        A natural register + offset address.  The register satisfies
        riscv_valid_base_register_p and the offset is a const_arith_operand.
@@ -97,6 +110,9 @@ along with GCC; see the file COPYING3.  If not see
    ADDRESS_SYMBOLIC:
        A constant symbolic address.  */
 enum riscv_address_type {
+  ADDRESS_REG_REG,
+  ADDRESS_REG_UREG,
+  ADDRESS_REG_WB,
   ADDRESS_REG,
   ADDRESS_LO_SUM,
   ADDRESS_CONST_INT,
@@ -201,6 +217,7 @@ struct riscv_address_info {
   rtx reg;
   rtx offset;
   enum riscv_symbol_type symbol_type;
+  int shift;
 };
 
 /* One stage in a constant building sequence.  These sequences have
@@ -1025,11 +1042,30 @@ riscv_classify_address (struct riscv_address_info *info, rtx x,
       if (riscv_v_ext_vector_mode_p (mode))
 	return false;
 
+      if (riscv_valid_base_register_p (XEXP (x, 0), mode, strict_p)
+	  && riscv_classify_address_index (info, XEXP (x, 1), mode, strict_p))
+	{
+	  info->reg = XEXP (x, 0);
+	  return true;
+	}
+      else if (riscv_valid_base_register_p (XEXP (x, 1), mode, strict_p)
+		&& riscv_classify_address_index (info, XEXP (x, 0),
+						 mode, strict_p))
+	{
+	  info->reg = XEXP (x, 1);
+	  return true;
+	}
+
       info->type = ADDRESS_REG;
       info->reg = XEXP (x, 0);
       info->offset = XEXP (x, 1);
       return (riscv_valid_base_register_p (info->reg, mode, strict_p)
 	      && riscv_valid_offset_p (info->offset, mode));
+
+    case POST_MODIFY:
+    case PRE_MODIFY:
+
+      return riscv_classify_address_modify (info, x, mode, strict_p);
 
     case LO_SUM:
       /* RVV load/store disallow LO_SUM.  */
@@ -1267,6 +1303,263 @@ riscv_emit_move (rtx dest, rtx src)
   return (can_create_pseudo_p ()
 	  ? emit_move_insn (dest, src)
 	  : emit_move_insn_1 (dest, src));
+}
+
+/* Return true if address offset is a valid index.  If it is, fill in INFO
+   appropriately.  STRICT_P is true if REG_OK_STRICT is in effect.  */
+
+bool
+riscv_classify_address_index (struct riscv_address_info *info, rtx x,
+      machine_mode mode, bool strict_p)
+{
+  enum riscv_address_type type = ADDRESS_REG_REG;;
+  rtx index;
+  int shift = 0;
+
+  if (!TARGET_XTHEADMEMIDX)
+    return false;
+
+  if (!TARGET_64BIT && mode == DImode)
+    return false;
+
+  if (SCALAR_FLOAT_MODE_P (mode))
+    {
+      if (!TARGET_HARD_FLOAT)
+	return false;
+      if (GET_MODE_SIZE (mode).to_constant () == 2)
+	return false;
+    }
+
+  /* (reg:P) */
+  if ((REG_P (x) || GET_CODE (x) == SUBREG)
+      && GET_MODE (x) == Pmode)
+    {
+      index = x;
+      shift = 0;
+    }
+  /* (zero_extend:DI (reg:SI)) */
+  else if (GET_CODE (x) == ZERO_EXTEND
+	   && GET_MODE (x) == DImode
+	   && GET_MODE (XEXP (x, 0)) == SImode)
+    {
+      type = ADDRESS_REG_UREG;
+      index = XEXP (x, 0);
+      shift = 0;
+    }
+  /* (mult:DI (zero_extend:DI (reg:SI)) (const_int scale)) */
+  else if (GET_CODE (x) == MULT
+	   && GET_CODE (XEXP (x, 0)) == ZERO_EXTEND
+	   && GET_MODE (XEXP (x, 0)) == DImode
+	   && GET_MODE (XEXP (XEXP (x, 0), 0)) == SImode
+	   && CONST_INT_P (XEXP (x, 1)))
+    {
+      type = ADDRESS_REG_UREG;
+      index = XEXP (XEXP (x, 0), 0);
+      shift = exact_log2 (INTVAL (XEXP (x, 1)));
+    }
+  /* (ashift:DI (zero_extend:DI (reg:SI)) (const_int shift)) */
+  else if (GET_CODE (x) == ASHIFT
+	   && GET_CODE (XEXP (x, 0)) == ZERO_EXTEND
+	   && GET_MODE (XEXP (x, 0)) == DImode
+	   && GET_MODE (XEXP (XEXP (x, 0), 0)) == SImode
+	   && CONST_INT_P (XEXP (x, 1)))
+    {
+      type = ADDRESS_REG_UREG;
+      index = XEXP (XEXP (x, 0), 0);
+      shift = INTVAL (XEXP (x, 1));
+    }
+  /* (mult:P (reg:P) (const_int scale)) */
+  else if (GET_CODE (x) == MULT
+	   && GET_MODE (x) == Pmode
+	   && GET_MODE (XEXP (x, 0)) == Pmode
+	   && CONST_INT_P (XEXP (x, 1)))
+    {
+      index = XEXP (x, 0);
+      shift = exact_log2 (INTVAL (XEXP (x, 1)));
+    }
+  /* (ashift:P (reg:P) (const_int shift)) */
+  else if (GET_CODE (x) == ASHIFT
+	   && GET_MODE (x) == Pmode
+	   && GET_MODE (XEXP (x, 0)) == Pmode
+	   && CONST_INT_P (XEXP (x, 1)))
+    {
+      index = XEXP (x, 0);
+      shift = INTVAL (XEXP (x, 1));
+    }
+  else
+    return false;
+
+  if (shift != 0 && !IN_RANGE (shift, 1, 3))
+    return false;
+
+  if (!strict_p
+      && GET_CODE (index) == SUBREG
+      && contains_reg_of_mode[GENERAL_REGS][GET_MODE (SUBREG_REG (index))])
+    index = SUBREG_REG (index);
+
+  if (riscv_valid_base_register_p (index, mode, strict_p))
+    {
+      info->type = type;
+      info->offset = index;
+      info->shift = shift;
+      return true;
+    }
+  return false;
+}
+
+/* Return true if address is a valid modify.  If it is, fill in INFO
+   appropriately.  STRICT_P is true if REG_OK_STRICT is in effect.  */
+
+bool
+riscv_classify_address_modify (struct riscv_address_info *info, rtx x,
+      machine_mode mode, bool strict_p)
+{
+
+#define AM_IMM(BIT) (1LL << (5 + (BIT)))
+#define AM_OFFSET(VALUE, SHIFT) (\
+  ((unsigned HOST_WIDE_INT) (VALUE) + AM_IMM (SHIFT)/2 < AM_IMM (SHIFT)) \
+  && !((unsigned HOST_WIDE_INT) (VALUE) & ((1 << (SHIFT)) - 1)) \
+  ? (SHIFT) + 1 \
+  : 0)
+
+  if (!TARGET_XTHEADMEMIDX)
+    return false;
+
+  if (!(INTEGRAL_MODE_P (mode) && GET_MODE_SIZE (mode).to_constant () <= 8))
+    return false;
+
+  if (!TARGET_64BIT && mode == DImode)
+    return false;
+
+  if (GET_CODE (x) != POST_MODIFY
+      && GET_CODE (x) != PRE_MODIFY)
+    return false;
+
+  info->type = ADDRESS_REG_WB;
+  info->reg = XEXP (x, 0);
+
+  if (GET_CODE (XEXP (x, 1)) == PLUS
+      && CONST_INT_P (XEXP (XEXP (x, 1), 1))
+      && rtx_equal_p (XEXP (XEXP (x, 1), 0), info->reg)
+      && riscv_valid_base_register_p (info->reg, mode, strict_p))
+    {
+      info->offset = XEXP (XEXP (x, 1), 1);
+      int shift = AM_OFFSET (INTVAL (info->offset), 0);
+      if (!shift)
+	shift = AM_OFFSET (INTVAL (info->offset), 1);
+      if (!shift)
+	shift = AM_OFFSET (INTVAL (info->offset), 2);
+      if (!shift)
+	shift = AM_OFFSET (INTVAL (info->offset), 3);
+      if (shift)
+	{
+	  info->shift = shift - 1;
+	  return true;
+	}
+    }
+  return false;
+}
+
+/* Return TRUE if X is a legitimate address modify.  */
+
+bool
+riscv_legitimize_address_modify_p (rtx x, machine_mode mode, bool post)
+{
+  struct riscv_address_info addr;
+  return riscv_classify_address_modify (&addr, x, mode, false)
+	 && (!post || GET_CODE (x) == POST_MODIFY);
+}
+
+/* Return the LDIB/LDIA and STIB/STIA instructions.  Assume
+   that X is MEM operand.  */
+
+const char *
+riscv_output_move_modify (rtx x, machine_mode mode, bool ldi)
+{
+  static char buf[128] = {0};
+
+  int index = exact_log2 (GET_MODE_SIZE (mode).to_constant ());
+  if (!IN_RANGE (index, 0, 3))
+    return NULL;
+
+  if (!riscv_legitimize_address_modify_p (x, mode, false))
+    return NULL;
+
+  bool post = riscv_legitimize_address_modify_p (x, mode, true);
+
+  const char *const insn[][4] = {
+    {
+      "th.sbi%s\t%%z1,%%0",
+      "th.shi%s\t%%z1,%%0",
+      "th.swi%s\t%%z1,%%0",
+      "th.sdi%s\t%%z1,%%0"
+    },
+    {
+      "th.lbui%s\t%%0,%%1",
+      "th.lhui%s\t%%0,%%1",
+      "th.lwi%s\t%%0,%%1",
+      "th.ldi%s\t%%0,%%1"
+    }
+  };
+
+  snprintf (buf, sizeof (buf), insn[ldi][index], post ? "a" : "b");
+  return buf;
+}
+
+bool
+riscv_legitimize_address_index_p (rtx x, machine_mode mode, bool uindex)
+{
+  struct riscv_address_info addr;
+  rtx op0, op1;
+
+  if (GET_CODE (x) != PLUS)
+    return false;
+
+  op0 = XEXP (x, 0);
+  op1 = XEXP (x, 1);
+
+  return ((riscv_valid_base_register_p (op0, mode, false)
+	   && riscv_classify_address_index (&addr, op1, mode, false))
+	  || (riscv_valid_base_register_p (op1, mode, false)
+	      && riscv_classify_address_index (&addr, op0, mode, false)))
+	 && (!uindex || addr.type == ADDRESS_REG_UREG);
+}
+
+/* Return the LDR or STR instructions.  Assume
+   that X is MEM operand.  */
+
+const char *
+riscv_output_move_index (rtx x, machine_mode mode, bool ldr)
+{
+  static char buf[128] = {0};
+
+  int index = exact_log2 (GET_MODE_SIZE (mode).to_constant ());
+  if (!IN_RANGE (index, 0, 3))
+    return NULL;
+
+  if (!riscv_legitimize_address_index_p (x, mode, false))
+    return NULL;
+
+  bool uindex = riscv_legitimize_address_index_p (x, mode, true);
+
+  const char *const insn[][4] = {
+    {
+      "th.s%srb\t%%z1,%%0",
+      "th.s%srh\t%%z1,%%0",
+      "th.s%srw\t%%z1,%%0",
+      "th.s%srd\t%%z1,%%0"
+    },
+    {
+      "th.l%srbu\t%%0,%%1",
+      "th.l%srhu\t%%0,%%1",
+      "th.l%srw\t%%0,%%1",
+      "th.l%srd\t%%0,%%1"
+    }
+  };
+
+  snprintf (buf, sizeof (buf), insn[ldr][index], uindex ? "u" : "");
+
+  return buf;
 }
 
 /* Emit an instruction of the form (set TARGET SRC).  */
@@ -1630,6 +1923,42 @@ riscv_legitimize_address (rtx x, rtx oldx ATTRIBUTE_UNUSED,
   /* See if the address can split into a high part and a LO_SUM.  */
   if (riscv_split_symbol (NULL, x, mode, &addr, FALSE))
     return riscv_force_address (addr, mode);
+
+  /* Optimize BASE + OFFSET into BASE + INDEX.  */
+  if (TARGET_XTHEADMEMIDX
+      && GET_CODE (x) == PLUS && CONST_INT_P (XEXP (x, 1))
+      && INTVAL (XEXP (x, 1)) != 0
+      && GET_CODE (XEXP (x, 0)) == PLUS)
+    {
+      rtx base = XEXP (x, 0);
+      rtx offset_rtx = XEXP (x, 1);
+
+      rtx op0 = XEXP (base, 0);
+      rtx op1 = XEXP (base, 1);
+      /* Force any scaling into a temp for CSE.  */
+      op0 = force_reg (Pmode, op0);
+      op1 = force_reg (Pmode, op1);
+
+      /* Let the pointer register be in op0.  */
+      if (REG_POINTER (op1))
+	std::swap (op0, op1);
+
+      unsigned regno = REGNO (op0);
+
+      /* If the pointer is virtual or frame related, then we know that
+       virtual register instantiation or register elimination is going
+       to apply a second constant.  We want the two constants folded
+       together easily.  Therefore, emit as (OP0 + CONST) + OP1.  */
+      if ((regno >= FIRST_VIRTUAL_REGISTER
+	   && regno <= LAST_VIRTUAL_POINTER_REGISTER)
+	  || regno == FRAME_POINTER_REGNUM
+	  || regno == ARG_POINTER_REGNUM)
+	{
+	  base = expand_binop (Pmode, add_optab, op0, offset_rtx,
+			       NULL_RTX, true, OPTAB_DIRECT);
+	  return gen_rtx_PLUS (Pmode, base, op1);
+	}
+    }
 
   /* Handle BASE + OFFSET.  */
   if (GET_CODE (x) == PLUS && CONST_INT_P (XEXP (x, 1))
@@ -2408,6 +2737,13 @@ riscv_rtx_costs (rtx x, machine_mode mode, int outer_code, int opno ATTRIBUTE_UN
 	  *total = COSTS_N_INSNS (SINGLE_SHIFT_COST);
 	  return true;
 	}
+      /* bit extraction pattern (xtheadmemidx, xtheadfmemidx).  */
+      if (outer_code == SET
+	  && TARGET_XTHEADMEMIDX)
+	{
+	  *total = COSTS_N_INSNS (SINGLE_SHIFT_COST);
+	  return true;
+	}
       gcc_fallthrough ();
     case SIGN_EXTRACT:
       if (TARGET_XTHEADBB && outer_code == SET
@@ -2826,13 +3162,23 @@ riscv_output_move (rtx dest, rtx src)
 	  }
 
       if (src_code == MEM)
-	switch (width)
-	  {
-	  case 1: return "lbu\t%0,%1";
-	  case 2: return "lhu\t%0,%1";
-	  case 4: return "lw\t%0,%1";
-	  case 8: return "ld\t%0,%1";
-	  }
+	{
+	  const char *insn = NULL;
+	  insn = riscv_output_move_index (XEXP (src, 0), GET_MODE (src), true);
+	  if (!insn)
+	    insn = riscv_output_move_modify (XEXP (src, 0),
+					     GET_MODE (src), true);
+	  if (insn)
+	    return insn;
+
+	  switch (width)
+	    {
+	    case 1: return "lbu\t%0,%1";
+	    case 2: return "lhu\t%0,%1";
+	    case 4: return "lw\t%0,%1";
+	    case 8: return "ld\t%0,%1";
+	    }
+	}
 
       if (src_code == CONST_INT)
 	{
@@ -2887,13 +3233,24 @@ riscv_output_move (rtx dest, rtx src)
 	      }
 	}
       if (dest_code == MEM)
-	switch (width)
-	  {
-	  case 1: return "sb\t%z1,%0";
-	  case 2: return "sh\t%z1,%0";
-	  case 4: return "sw\t%z1,%0";
-	  case 8: return "sd\t%z1,%0";
-	  }
+	{
+	  const char *insn = NULL;
+	  insn = riscv_output_move_index (XEXP (dest, 0),
+					  GET_MODE (dest), false);
+	  if (!insn)
+	    insn = riscv_output_move_modify (XEXP (dest, 0),
+					     GET_MODE (dest), false);
+	  if (insn)
+	    return insn;
+
+	  switch (width)
+	    {
+	    case 1: return "sb\t%z1,%0";
+	    case 2: return "sh\t%z1,%0";
+	    case 4: return "sw\t%z1,%0";
+	    case 8: return "sd\t%z1,%0";
+	    }
+	}
     }
   if (src_code == REG && FP_REG_P (REGNO (src)))
     {
@@ -2911,28 +3268,32 @@ riscv_output_move (rtx dest, rtx src)
 	  }
 
       if (dest_code == MEM)
-	switch (width)
-	  {
-	  case 2:
-	    return "fsh\t%1,%0";
-	  case 4:
-	    return "fsw\t%1,%0";
-	  case 8:
-	    return "fsd\t%1,%0";
-	  }
+	{
+	  switch (width)
+	    {
+	    case 2:
+	      return "fsh\t%1,%0";
+	    case 4:
+	      return "fsw\t%1,%0";
+	    case 8:
+	      return "fsd\t%1,%0";
+	    }
+	}
     }
   if (dest_code == REG && FP_REG_P (REGNO (dest)))
     {
       if (src_code == MEM)
-	switch (width)
-	  {
-	  case 2:
-	    return "flh\t%0,%1";
-	  case 4:
-	    return "flw\t%0,%1";
-	  case 8:
-	    return "fld\t%0,%1";
-	  }
+	{
+	  switch (width)
+	    {
+	    case 2:
+	      return "flh\t%0,%1";
+	    case 4:
+	      return "flw\t%0,%1";
+	    case 8:
+	      return "fld\t%0,%1";
+	    }
+	}
     }
   if (dest_code == REG && GP_REG_P (REGNO (dest)) && src_code == CONST_POLY_INT)
     {
@@ -4880,6 +5241,19 @@ riscv_print_operand_address (FILE *file, machine_mode mode ATTRIBUTE_UNUSED, rtx
 
       case ADDRESS_SYMBOLIC:
 	output_addr_const (file, riscv_strip_unspec_address (x));
+	return;
+
+      case ADDRESS_REG_REG:
+      case ADDRESS_REG_UREG:
+	fprintf (file, "%s,%s,%u", reg_names[REGNO (addr.reg)],
+				   reg_names[REGNO (addr.offset)],
+				   addr.shift);
+	return;
+
+      case ADDRESS_REG_WB:
+	fprintf (file, "(%s),%ld,%u", reg_names[REGNO (addr.reg)],
+				      (long) INTVAL (addr.offset) >> addr.shift,
+				      addr.shift);
 	return;
       }
   gcc_unreachable ();

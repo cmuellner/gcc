@@ -1360,12 +1360,17 @@
   "TARGET_64BIT")
 
 (define_insn_and_split "*zero_extendsidi2_internal"
-  [(set (match_operand:DI     0 "register_operand"     "=r,r")
+  [(set (match_operand:DI     0 "register_operand"     "=r,r,r,r,r,r")
 	(zero_extend:DI
-	    (match_operand:SI 1 "nonimmediate_operand" " r,m")))]
-  "TARGET_64BIT && !TARGET_ZBA"
+	    (match_operand:SI 1
+	    "nonimmediate_operand" " r,Qmu,Qmr,Qma,Qmb,m")))]
+  "TARGET_64BIT && !(TARGET_ZBA || TARGET_ZBB)"
   "@
    #
+   th.lurwu\t%0,%1
+   th.lrwu\t%0,%1
+   th.lwuia\t%0,%1
+   th.lwuib\t%0,%1
    lwu\t%0,%1"
   "&& reload_completed
    && REG_P (operands[1])
@@ -1375,7 +1380,7 @@
    (set (match_dup 0)
 	(lshiftrt:DI (match_dup 0) (const_int 32)))]
   { operands[1] = gen_lowpart (DImode, operands[1]); }
-  [(set_attr "move_type" "shift_shift,load")
+  [(set_attr "move_type" "shift_shift,load,load,load,load,load")
    (set_attr "mode" "DI")])
 
 (define_expand "zero_extendhi<GPR:mode>2"
@@ -1384,13 +1389,18 @@
 	    (match_operand:HI 1 "nonimmediate_operand")))]
   "")
 
-(define_insn_and_split "*zero_extendhi<GPR:mode>2"
-  [(set (match_operand:GPR    0 "register_operand"     "=r,r")
+(define_insn_and_split "*zero_extendhi<GPR:mode>2_internal"
+  [(set (match_operand:GPR    0 "register_operand"     "=r,r,r,r,r,r")
 	(zero_extend:GPR
-	    (match_operand:HI 1 "nonimmediate_operand" " r,m")))]
-  "!TARGET_ZBB"
+	    (match_operand:HI 1
+	    "nonimmediate_operand" " r,Qmu,Qmr,Qma,Qmb,m")))]
+  "!(TARGET_ZBA || TARGET_ZBB)"
   "@
    #
+   th.lurhu\t%0,%1
+   th.lrhu\t%0,%1
+   th.lhuia\t%0,%1
+   th.lhuib\t%0,%1
    lhu\t%0,%1"
   "&& reload_completed
    && REG_P (operands[1])
@@ -1401,20 +1411,25 @@
 	(lshiftrt:GPR (match_dup 0) (match_dup 2)))]
   {
     operands[1] = gen_lowpart (<GPR:MODE>mode, operands[1]);
-    operands[2] = GEN_INT(GET_MODE_BITSIZE(<GPR:MODE>mode) - 16);
+    operands[2] = GEN_INT (GET_MODE_BITSIZE (<GPR:MODE>mode) - 16);
   }
-  [(set_attr "move_type" "shift_shift,load")
+  [(set_attr "move_type" "shift_shift,load,load,load,load,load")
    (set_attr "mode" "<GPR:MODE>")])
 
 (define_insn "zero_extendqi<SUPERQI:mode>2"
-  [(set (match_operand:SUPERQI 0 "register_operand"    "=r,r")
+  [(set (match_operand:SUPERQI 0 "register_operand"    "=r,r,r,r,r,r")
 	(zero_extend:SUPERQI
-	    (match_operand:QI 1 "nonimmediate_operand" " r,m")))]
+	    (match_operand:QI 1
+	    "nonimmediate_operand" " r,Qmu,Qmr,Qma,Qmb,m")))]
   ""
   "@
    andi\t%0,%1,0xff
+   th.lurbu\t%0,%1
+   th.lrbu\t%0,%1
+   th.lbuia\t%0,%1
+   th.lbuib\t%0,%1
    lbu\t%0,%1"
-  [(set_attr "move_type" "andi,load")
+  [(set_attr "move_type" "andi,load,load,load,load,load")
    (set_attr "mode" "<SUPERQI:MODE>")])
 
 ;;
@@ -1425,14 +1440,19 @@
 ;;  ....................
 
 (define_insn "extendsidi2"
-  [(set (match_operand:DI     0 "register_operand"     "=r,r")
+  [(set (match_operand:DI     0 "register_operand"     "=r,r,r,r,r,r")
 	(sign_extend:DI
-	    (match_operand:SI 1 "nonimmediate_operand" " r,m")))]
+	    (match_operand:SI 1
+	    "nonimmediate_operand" " r,Qmu,Qmr,Qma,Qmb,m")))]
   "TARGET_64BIT"
   "@
    sext.w\t%0,%1
+   th.lurw\t%0,%1
+   th.lrw\t%0,%1
+   th.lwia\t%0,%1
+   th.lwib\t%0,%1
    lw\t%0,%1"
-  [(set_attr "move_type" "move,load")
+  [(set_attr "move_type" "move,load,load,load,load,load")
    (set_attr "mode" "DI")])
 
 (define_expand "extend<SHORT:mode><SUPERQI:mode>2"
@@ -1441,12 +1461,17 @@
   "")
 
 (define_insn_and_split "*extend<SHORT:mode><SUPERQI:mode>2"
-  [(set (match_operand:SUPERQI   0 "register_operand"     "=r,r")
+  [(set (match_operand:SUPERQI   0 "register_operand"     "=r,r,r,r,r,r")
 	(sign_extend:SUPERQI
-	    (match_operand:SHORT 1 "nonimmediate_operand" " r,m")))]
+	    (match_operand:SHORT 1
+	    "nonimmediate_operand" " r,Qmu,Qmr,Qma,Qmb,m")))]
   "!TARGET_ZBB"
   "@
    #
+   th.lur<SHORT:size>\t%0,%1
+   th.lr<SHORT:size>\t%0,%1
+   th.l<SHORT:size>ia\t%0,%1
+   th.l<SHORT:size>ib\t%0,%1
    l<SHORT:size>\t%0,%1"
   "&& reload_completed
    && REG_P (operands[1])
@@ -1459,7 +1484,7 @@
   operands[2] = GEN_INT (GET_MODE_BITSIZE (SImode)
 			 - GET_MODE_BITSIZE (<SHORT:MODE>mode));
 }
-  [(set_attr "move_type" "shift_shift,load")
+  [(set_attr "move_type" "shift_shift,load,load,load,load,load")
    (set_attr "mode" "SI")])
 
 (define_insn "extendhfsf2"
@@ -1507,7 +1532,8 @@
    && (register_operand (operands[0], HFmode)
        || reg_or_0_operand (operands[1], HFmode))"
   { return riscv_output_move (operands[0], operands[1]); }
-  [(set_attr "move_type" "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
+  [(set_attr "move_type"
+	     "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
    (set_attr "mode" "HF")])
 
 (define_insn "*movhf_softfloat"
@@ -1836,7 +1862,8 @@
    && (register_operand (operands[0], SFmode)
        || reg_or_0_operand (operands[1], SFmode))"
   { return riscv_output_move (operands[0], operands[1]); }
-  [(set_attr "move_type" "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
+  [(set_attr "move_type"
+	     "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
    (set_attr "mode" "SF")])
 
 (define_insn "*movsf_softfloat"
@@ -1860,7 +1887,6 @@
     DONE;
 })
 
-
 ;; In RV32, we lack fmv.x.d and fmv.d.x.  Go through memory instead.
 ;; (However, we can still use fcvt.d.w to zero a floating-point register.)
 (define_insn "*movdf_hardfloat_rv32"
@@ -1870,7 +1896,8 @@
    && (register_operand (operands[0], DFmode)
        || reg_or_0_operand (operands[1], DFmode))"
   { return riscv_output_move (operands[0], operands[1]); }
-  [(set_attr "move_type" "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
+  [(set_attr "move_type"
+	     "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
    (set_attr "mode" "DF")])
 
 (define_insn "*movdf_hardfloat_rv64"
@@ -1880,7 +1907,8 @@
    && (register_operand (operands[0], DFmode)
        || reg_or_0_operand (operands[1], DFmode))"
   { return riscv_output_move (operands[0], operands[1]); }
-  [(set_attr "move_type" "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
+  [(set_attr "move_type"
+	     "fmove,mtc,fpload,fpstore,store,mtc,mfc,move,load,store")
    (set_attr "mode" "DF")])
 
 (define_insn "*movdf_softfloat"
@@ -2187,7 +2215,7 @@
 	(and:GPR (match_operand:GPR 1 "register_operand")
 		 (match_operand:GPR 2 "p2m1_shift_operand")))
    (clobber (match_operand:GPR 3 "register_operand"))]
-  ""
+  "!TARGET_XTHEADMEMIDX"
  [(set (match_dup 3)
        (ashift:GPR (match_dup 1) (match_dup 2)))
   (set (match_dup 0)
