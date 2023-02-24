@@ -54,7 +54,13 @@ extern bool riscv_split_64bit_move_p (rtx, rtx);
 extern void riscv_split_doubleword_move (rtx, rtx);
 extern const char *riscv_output_move (rtx, rtx);
 extern const char *riscv_output_return ();
+
+extern bool thead_mempair_operands_p (rtx[4], bool, machine_mode);
+extern void thead_mempair_order_operands (rtx[4], bool, machine_mode);
+
 #ifdef RTX_CODE
+extern const char *thead_mempair_output_move (rtx[4], bool, machine_mode, RTX_CODE);
+
 extern void riscv_expand_int_scc (rtx, enum rtx_code, rtx, rtx);
 extern void riscv_expand_float_scc (rtx, enum rtx_code, rtx, rtx);
 extern void riscv_expand_conditional_branch (rtx, enum rtx_code, rtx, rtx);
